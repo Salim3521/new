@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<title>Scanner un reçu — FactureIA</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="/styles.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js"></script>
+</head>
+<body>
+<header class="topnav">
+  <div class="brand">Facture<span>IA</span></div>
+  <nav>
+    <a href="/">Accueil</a>
+    <a href="/scan.html" class="active">Scanner</a>
+    <a href="/invoices.html">Factures</a>
+    <a href="/dashboard.html">Tableau de bord</a>
+  </nav>
+</header>
+<main>
+  <h2>Scanner un reçu ou une facture</h2>
+  <p class="muted">Prenez une photo ou importez une image. L'IA (OCR) extrait automatiquement le montant, la date et le fournisseur — vérifiez et corrigez avant d'enregistrer.</p>
+
+  <div class="card">
+    <div class="dropzone" id="dropzone">
+      <input type="file" id="fileInput" accept="image/*" style="display:none" />
+      <p id="dzText">Cliquez pour choisir une photo de reçu, ou glissez-la ici</p>
+      <img id="preview" style="max-width:100%;max-height:280px;display:none;border-radius:8px;margin-top:12px" />
+    </div>
+    <p class="muted" id="ocrStatus"></p>
+  </div>
+
+  <div class="card" id="resultCard" style="display:none">
+    <p class="section-title">Détails extraits (à vérifier)</p>
+    <div class="form-row">
+      <input id="fVendor" placeholder="Fournisseur" />
+      <input id="fAmount" placeholder="Montant (€)" type="number" step="0.01" />
+      <input id="fDate" type="date" />
+      <select id="fCategory">
+        <option>Fournitures</option>
+        <option>Déplacement</option>
+        <option>Repas</option>
+        <option>Logiciel / abonnement</option>
+        <option>Autre</option>
+      </select>
+    </div>
+    <button id="saveBtn">Enregistrer la dépense</button>
+    <span class="muted" id="rawTextToggle" style="margin-left:10px;cursor:pointer;text-decoration:underline">voir le texte brut détecté</span>
+    <pre id="rawText" style="display:none;white-space:pre-wrap;background:#f3f4f6;padding:10px;border-radius:8px;margin-top:10px;font-size:12px"></pre>
+  </div>
+
+  <div class="card">
+    <p class="section-title">Dépenses récentes</p>
+    <table id="expTable">
+      <thead><tr><th>Date</th><th>Fournisseur</th><th>Catégorie</th><th>Montant</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</main>
+<script src="/app.js"></script>
+<script>
+let currentFile = null;
+
+const dropzone = document.getElementById("dropzone");
+const fileInput = document.getElementById("fileInput");
+dropzone.addEventListener("click", () => fileInput.click());
+["dragover"].forEach(evt => dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.add("dragover"); }));
+["dragleave", "drop"].forEach(evt => dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.remove("dragover"); }));
+dropzone.addEventListener("drop", (e) => {
+  if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener("change", (e) => {
+  if (e.target.files.length) handleFile(e.target.files[0]);
+});
+
+function parseReceiptText(text) {
+  const amountMatch = text.match(/(\d{1,4}[.,]\d{2})\s*(?:€|EUR)?/g);
+  let amount = "";
+  if (amountMatch) {
+    const nums = amountMatch.map(s => parseFloat(s.replace(",", ".").replace(/[^\d.]/g, "")));
+    amount = Math.max(...nums).toFixed(2);
+  }
+  const dateMatch = text.match(/(\d{2}[\/\-.]\d{2}[\/\-.]\d{2,4})/);
+  let date = "";
+  if (dateMatch) {
+    const parts = dateMatch[1].split(/[\/\-.]/);
+    if (parts[2] && parts[2].length === 2) parts[2] = "20" + parts[2];
+    if (parts.length === 3) date = `${parts[2]}-${parts[1].padStart(2,"0")}-${parts[0].padStart(2,"0")}`;
+  }
+  const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+  const vendor = lines.length ? lines[0].slice(0, 40) : "";
+  return { amount, date, vendor };
+}
+
+async function handleFile(file) {
+  currentFile = file;
+  const preview = document.getElementById("preview");
+  preview.src = URL.createObjectURL(file);
+  preview.style.display = "block";
+  document.getElementById("dzText").textContent = file.name;
+  document.getElementById("ocrStatus").textContent = "Lecture du reçu par l'IA en cours...";
+  document.getElementById("resultCard").style.display = "none";
+
+  try {
+    const { data } = await Tesseract.recognize(file, "fra+eng", {
+      logger: (m) => {
+        if (m.status === "recognizing text") {
+          document.getElementById("ocrStatus").textContent = `Lecture du reçu... ${Math.round(m.progress * 100)}%`;
+        }
+      },
+    });
+    const parsed = parseReceiptText(data.text);
+    document.getElementById("fVendor").value = parsed.vendor;
+    document.getElementById("fAmount").value = parsed.amount;
+    document.getElementById("fDate").value = parsed.date || new Date().toISOString().slice(0, 10);
+    document.getElementById("rawText").textContent = data.text || "(aucun texte détecté)";
+    document.getElementById("ocrStatus").textContent = "Extraction terminée — vérifiez les champs ci-dessous.";
+    document.getElementById("resultCard").style.display = "block";
+  } catch (err) {
+    document.getElementById("ocrStatus").textContent = "Erreur OCR : " + err.message + " — vous pouvez saisir les champs manuellement.";
+    document.getElementById("fDate").value = new Date().toISOString().slice(0, 10);
+    document.getElementById("resultCard").style.display = "block";
+  }
+}
+
+document.getElementById("rawTextToggle").addEventListener("click", () => {
+  const el = document.getElementById("rawText");
+  el.style.display = el.style.display === "none" ? "block" : "none";
+});
+
+document.getElementById("saveBtn").addEventListener("click", async () => {
+  const fd = new FormData();
+  fd.append("vendor", document.getElementById("fVendor").value);
+  fd.append("amount", document.getElementById("fAmount").value);
+  fd.append("date", document.getElementById("fDate").value);
+  fd.append("category", document.getElementById("fCategory").value);
+  if (currentFile) fd.append("receipt", currentFile);
+  try {
+    await fetch("/api/expenses", { method: "POST", body: fd });
+    toast("Dépense enregistrée");
+    document.getElementById("resultCard").style.display = "none";
+    document.getElementById("preview").style.display = "none";
+    document.getElementById("dzText").textContent = "Cliquez pour choisir une photo de reçu, ou glissez-la ici";
+    loadExpenses();
+  } catch (err) {
+    toast("Erreur d'enregistrement");
+  }
+});
+
+async function loadExpenses() {
+  const expenses = await api("/api/expenses");
+  const tbody = document.querySelector("#expTable tbody");
+  tbody.innerHTML = "";
+  expenses.slice().reverse().forEach((e) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${e.date}</td><td>${e.vendor}</td><td>${e.category}</td><td>${fmtMoney(e.amount)}</td>
+      <td><button class="danger" data-id="${e.id}">Suppr.</button></td>`;
+    tbody.appendChild(tr);
+  });
+  tbody.querySelectorAll("button.danger").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      await api(`/api/expenses/${btn.dataset.id}`, { method: "DELETE" });
+      loadExpenses();
+    });
+  });
+}
+loadExpenses();
+</script>
+</body>
+</html>

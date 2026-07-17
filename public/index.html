@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<title>FactureIA — Vos reçus et factures, gérés par l'IA</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<header class="topnav">
+  <div class="brand">Facture<span>IA</span></div>
+  <nav>
+    <a href="/" class="active">Accueil</a>
+    <a href="/scan.html">Scanner</a>
+    <a href="/invoices.html">Factures</a>
+    <a href="/dashboard.html">Tableau de bord</a>
+  </nav>
+</header>
+<main>
+  <section class="hero">
+    <h1>Photographiez un reçu. FactureIA fait le reste.</h1>
+    <p class="tagline">L'app qui transforme vos reçus et factures en comptabilité automatique — pensée pour les indépendants et petites entreprises qui n'ont pas de temps à perdre.</p>
+    <form class="waitlist-form card" id="waitlistForm" style="display:inline-flex">
+      <input type="email" id="wlEmail" placeholder="votre@email.com" required />
+      <select id="wlRole">
+        <option value="">Je suis...</option>
+        <option value="independant">Indépendant / freelance</option>
+        <option value="tpe">TPE (2-10 salariés)</option>
+        <option value="autre">Autre</option>
+      </select>
+      <button type="submit">Rejoindre la liste d'attente</button>
+    </form>
+    <p class="muted" id="wlCount" style="margin-top:14px"></p>
+  </section>
+
+  <section class="card">
+    <p class="section-title">Pourquoi FactureIA</p>
+    <div class="grid-3">
+      <div>
+        <strong>Scan intelligent</strong>
+        <p class="muted">Une photo suffit : montant, date et fournisseur extraits automatiquement.</p>
+      </div>
+      <div>
+        <strong>Factures en 30 secondes</strong>
+        <p class="muted">Créez et envoyez une facture professionnelle sans tableur ni logiciel complexe.</p>
+      </div>
+      <div>
+        <strong>Vue d'ensemble claire</strong>
+        <p class="muted">Dépenses, revenus et export comptable, réunis au même endroit.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <p class="section-title">Tarifs prévus au lancement</p>
+    <div class="grid-3">
+      <div><strong>Gratuit</strong><p class="muted">10 reçus/factures par mois</p></div>
+      <div><strong>Pro — 9,99€/mois</strong><p class="muted">Illimité + relances automatiques</p></div>
+      <div><strong>Business — 24,99€/mois</strong><p class="muted">Multi-utilisateurs + connecteurs comptables</p></div>
+    </div>
+  </section>
+</main>
+<script src="/app.js"></script>
+<script>
+async function refreshCount() {
+  try {
+    const r = await api("/api/waitlist");
+    document.getElementById("wlCount").textContent = `${r.count} personne(s) déjà inscrite(s) sur la liste d'attente`;
+  } catch (e) {}
+}
+document.getElementById("waitlistForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const email = document.getElementById("wlEmail").value;
+  const role = document.getElementById("wlRole").value;
+  try {
+    await api("/api/waitlist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, role }),
+    });
+    toast("Merci ! Vous êtes sur la liste.");
+    document.getElementById("wlEmail").value = "";
+    refreshCount();
+  } catch (err) {
+    toast(err.message);
+  }
+});
+refreshCount();
+</script>
+</body>
+</html>

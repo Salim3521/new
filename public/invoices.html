@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<title>Factures — FactureIA</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="/styles.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+<header class="topnav">
+  <div class="brand">Facture<span>IA</span></div>
+  <nav>
+    <a href="/">Accueil</a>
+    <a href="/scan.html">Scanner</a>
+    <a href="/invoices.html" class="active">Factures</a>
+    <a href="/dashboard.html">Tableau de bord</a>
+  </nav>
+</header>
+<main>
+  <h2>Créer une facture</h2>
+  <div class="card">
+    <div class="form-row">
+      <input id="client" placeholder="Nom du client" />
+      <input id="dueDate" type="date" placeholder="Échéance" />
+    </div>
+    <p class="section-title">Lignes</p>
+    <div id="items"></div>
+    <button type="button" class="secondary" id="addItem">+ Ajouter une ligne</button>
+    <div class="flex-between" style="margin-top:16px">
+      <strong id="totalDisplay">Total : 0,00 €</strong>
+      <button id="createInvoice">Générer la facture</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <p class="section-title">Factures émises</p>
+    <table id="invTable">
+      <thead><tr><th>N°</th><th>Client</th><th>Total</th><th>Statut</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</main>
+<script src="/app.js"></script>
+<script>
+function itemRow() {
+  const row = document.createElement("div");
+  row.className = "item-row";
+  row.innerHTML = `
+    <input placeholder="Description" class="desc" />
+    <input placeholder="Qté" type="number" value="1" class="qty" />
+    <input placeholder="Prix unitaire" type="number" step="0.01" class="price" />
+    <button type="button" class="secondary remove">✕</button>`;
+  row.querySelector(".remove").addEventListener("click", () => { row.remove(); updateTotal(); });
+  row.querySelectorAll(".qty, .price").forEach(el => el.addEventListener("input", updateTotal));
+  return row;
+}
+document.getElementById("addItem").addEventListener("click", () => {
+  document.getElementById("items").appendChild(itemRow());
+});
+document.getElementById("items").appendChild(itemRow());
+
+function updateTotal() {
+  let total = 0;
+  document.querySelectorAll("#items .item-row").forEach(row => {
+    const qty = parseFloat(row.querySelector(".qty").value) || 0;
+    const price = parseFloat(row.querySelector(".price").value) || 0;
+    total += qty * price;
+  });
+  document.getElementById("totalDisplay").textContent = "Total : " + fmtMoney(total);
+}
+
+function generatePdf(invoice) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  doc.setFontSize(20);
+  doc.text("FactureIA", 14, 20);
+  doc.setFontSize(11);
+  doc.text(`Facture ${invoice.number}`, 14, 30);
+  doc.text(`Client : ${invoice.client}`, 14, 38);
+  doc.text(`Date : ${new Date(invoice.createdAt).toLocaleDateString("fr-FR")}`, 14, 44);
+  if (invoice.dueDate) doc.text(`Échéance : ${invoice.dueDate}`, 14, 50);
+  let y = 64;
+  doc.setFont(undefined, "bold");
+  doc.text("Description", 14, y);
+  doc.text("Qté", 120, y);
+  doc.text("Prix", 145, y);
+  doc.text("Sous-total", 170, y);
+  doc.setFont(undefined, "normal");
+  y += 6;
+  invoice.items.forEach((it) => {
+    doc.text(String(it.desc || ""), 14, y);
+    doc.text(String(it.qty), 120, y);
+    doc.text(Number(it.price).toFixed(2) + " €", 145, y);
+    doc.text((it.qty * it.price).toFixed(2) + " €", 170, y);
+    y += 7;
+  });
+  y += 6;
+  doc.setFont(undefined, "bold");
+  doc.text(`Total : ${invoice.total.toFixed(2)} €`, 145, y);
+  doc.save(`${invoice.number}.pdf`);
+}
+
+document.getElementById("createInvoice").addEventListener("click", async () => {
+  const client = document.getElementById("client").value || "Client";
+  const dueDate = document.getElementById("dueDate").value;
+  const items = [...document.querySelectorAll("#items .item-row")].map(row => ({
+    desc: row.querySelector(".desc").value,
+    qty: parseFloat(row.querySelector(".qty").value) || 0,
+    price: parseFloat(row.querySelector(".price").value) || 0,
+  })).filter(it => it.desc || it.qty || it.price);
+
+  if (!items.length) { toast("Ajoutez au moins une ligne"); return; }
+
+  try {
+    const invoice = await api("/api/invoices", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client, items, dueDate }),
+    });
+    toast("Facture créée : " + invoice.number);
+    generatePdf(invoice);
+    loadInvoices();
+  } catch (err) {
+    toast("Erreur : " + err.message);
+  }
+});
+
+async function loadInvoices() {
+  const invoices = await api("/api/invoices");
+  const tbody = document.querySelector("#invTable tbody");
+  tbody.innerHTML = "";
+  invoices.slice().reverse().forEach((inv) => {
+    const badgeClass = inv.status === "payée" ? "paid" : (inv.status === "en retard" ? "overdue" : "pending");
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${inv.number}</td><td>${inv.client}</td><td>${fmtMoney(inv.total)}</td>
+      <td><span class="badge ${badgeClass}">${inv.status}</span></td>
+      <td>
+        <select data-id="${inv.id}" class="statusSelect">
+          <option ${inv.status === "en attente" ? "selected" : ""}>en attente</option>
+          <option ${inv.status === "payée" ? "selected" : ""}>payée</option>
+          <option ${inv.status === "en retard" ? "selected" : ""}>en retard</option>
+        </select>
+        <button class="danger" data-del="${inv.id}">Suppr.</button>
+      </td>`;
+    tbody.appendChild(tr);
+  });
+  tbody.querySelectorAll(".statusSelect").forEach((sel) => {
+    sel.addEventListener("change", async () => {
+      await api(`/api/invoices/${sel.dataset.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: sel.value }),
+      });
+      loadInvoices();
+    });
+  });
+  tbody.querySelectorAll("button.danger").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      await api(`/api/invoices/${btn.dataset.del}`, { method: "DELETE" });
+      loadInvoices();
+    });
+  });
+}
+loadInvoices();
+</script>
+</body>
+</html>

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<title>Tableau de bord — FactureIA</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<header class="topnav">
+  <div class="brand">Facture<span>IA</span></div>
+  <nav>
+    <a href="/">Accueil</a>
+    <a href="/scan.html">Scanner</a>
+    <a href="/invoices.html">Factures</a>
+    <a href="/dashboard.html" class="active">Tableau de bord</a>
+  </nav>
+</header>
+<main>
+  <div class="flex-between">
+    <h2>Tableau de bord</h2>
+    <a href="/api/export/csv"><button class="secondary">Exporter en CSV</button></a>
+  </div>
+
+  <div class="card grid-3">
+    <div class="stat"><div class="num" id="statExpenses">–</div><div class="label">Total dépenses</div></div>
+    <div class="stat"><div class="num" id="statInvoiced">–</div><div class="label">Total facturé</div></div>
+    <div class="stat"><div class="num" id="statOutstanding">–</div><div class="label">En attente de paiement</div></div>
+  </div>
+
+  <div class="card">
+    <p class="section-title">Dernières dépenses</p>
+    <table id="expTable"><thead><tr><th>Date</th><th>Fournisseur</th><th>Catégorie</th><th>Montant</th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div class="card">
+    <p class="section-title">Dernières factures</p>
+    <table id="invTable"><thead><tr><th>N°</th><th>Client</th><th>Total</th><th>Statut</th></tr></thead><tbody></tbody></table>
+  </div>
+</main>
+<script src="/app.js"></script>
+<script>
+async function load() {
+  const [expenses, invoices] = await Promise.all([api("/api/expenses"), api("/api/invoices")]);
+
+  const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
+  const totalInvoiced = invoices.reduce((s, i) => s + i.total, 0);
+  const outstanding = invoices.filter(i => i.status !== "payée").reduce((s, i) => s + i.total, 0);
+
+  document.getElementById("statExpenses").textContent = fmtMoney(totalExpenses);
+  document.getElementById("statInvoiced").textContent = fmtMoney(totalInvoiced);
+  document.getElementById("statOutstanding").textContent = fmtMoney(outstanding);
+
+  const expBody = document.querySelector("#expTable tbody");
+  expBody.innerHTML = "";
+  expenses.slice().reverse().slice(0, 8).forEach(e => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${e.date}</td><td>${e.vendor}</td><td>${e.category}</td><td>${fmtMoney(e.amount)}</td>`;
+    expBody.appendChild(tr);
+  });
+
+  const invBody = document.querySelector("#invTable tbody");
+  invBody.innerHTML = "";
+  invoices.slice().reverse().slice(0, 8).forEach(inv => {
+    const badgeClass = inv.status === "payée" ? "paid" : (inv.status === "en retard" ? "overdue" : "pending");
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${inv.number}</td><td>${inv.client}</td><td>${fmtMoney(inv.total)}</td><td><span class="badge ${badgeClass}">${inv.status}</span></td>`;
+    invBody.appendChild(tr);
+  });
+}
+load();
+</script>
+</body>
+</html>
