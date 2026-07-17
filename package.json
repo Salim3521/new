@@ -1,0 +1,15 @@
+{
+  "name": "factureia-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "FactureIA — MVP: scan de reçus par IA, génération de factures, tableau de bord.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node tests/parse.test.js"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "multer": "^2.2.0"
+  }
+}
